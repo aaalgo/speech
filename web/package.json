@@ -38,6 +38,7 @@
 	"dependencies": {
 		"@sveltejs/adapter-static": "^3.0.4",
 		"axios": "^1.7.7",
+		"jquery": "^3.7.1",
 		"sortablejs": "^1.15.3"
 	}
 }

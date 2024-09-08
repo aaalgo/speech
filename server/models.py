@@ -76,29 +76,39 @@ class Node (Base):
     deck = relationship('Deck', back_populates='nodes')
     create_time = mapped_column(DateTime, nullable=False, default=datetime.now)
     update_time = mapped_column(DateTime, nullable=False, default=datetime.now, onupdate=datetime.now)
-    
+
+    @property
     def data (self):
-        if self.__data is None:
-            self.__data = NodeData(self.deck_id, self.id, create=True)
-        return self.__data
+        if not getattr(self, '__data__', None):
+            self.__data__ = NodeData(self.deck_id, self.id, create=True)
+        return self.__data__
 
     def load (self, updateThumb=False):
         data = self.data.load()
+        if data is None:
+            data = {
+            }
         data['id'] = self.id
         data['deck_id'] = self.deck_id
-        data['thumb'] = self.base64_thumb()
+        data['thumb'] = Node.base64_thumb(self.deck_id, self.id)
         return data
 
     def save (self, data):
         self.data.save(data)
     
-    def base64_thumb (self):
-        thumb_path = os.path.join(self.data.current(), 'slide', 'current', 'thumb.png')
-        if not os.path.exists(thumb_path):
-            thumb = image.text(data['content'])
-        else:
+    @staticmethod
+    def base64_thumb (deck_id, node_id):
+        thumb_path = os.path.join(config.deck_path(deck_id), 'nodes', str(node_id), 'current', 'slide', 'current', 'thumb.png')
+        thumb = None
+        if os.path.exists(thumb_path):
             thumb = cv2.imread(thumb_path, cv2.IMREAD_COLOR)
-        return image.base64_encode(thumb)
+            thumb = image.base64_encode(thumb)
+        return thumb
+    
+    @staticmethod
+    def save_thumb (deck_id, node_id, thumb):
+        thumb_path = os.path.join(config.deck_path(deck_id), 'nodes', str(node_id), 'current', 'slide', 'current', 'thumb.png')
+        cv2.imwrite(thumb_path, thumb)
 
 if __name__ == '__main__':
     #from sqlalchemy import create_engine

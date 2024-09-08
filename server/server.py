@@ -71,10 +71,23 @@ def api_deck_create():
         }})
     return jsonify({'id':deck.id})
 
+def update_tree(deck_id, node):
+    node_id = node['node_id']
+    node['thumb'] = Node.base64_thumb(deck_id, node_id)
+    print(node['thumb'])
+    if not 'children' in node:
+        return
+    for child in node['children']:
+        update_tree(deck_id, child)
+
 @app.route('/api/deck/load/<int:deck_id>/')
 def api_deck_load (deck_id):
     deck = db.session.get(Deck, deck_id)
-    return deck.load()
+    data = deck.load()
+    if 'root' in data:
+        update_tree(deck_id, data['root'])
+    data['blank_thumb'] = image.base64_encode(image.empty())
+    return data;
 
 @app.route('/api/deck/save/<int:deck_id>/', methods=['POST'])
 def api_deck_save (deck_id):
@@ -105,6 +118,19 @@ def api_node_save (node_id):
     node = db.session.get(Node, node_id)
     node.save(data)
     return {'id':node.id}
+
+@app.route('/api/node/generate_slide/<int:node_id>/', methods=['POST'])
+def api_node_generate_slide (node_id):
+    data = request.json
+    node = db.session.get(Node, node_id)
+    node.save(data)
+    thumb = image.text(data['content'])
+    # update slide data
+    slideData = SlideData(node.data.current())
+    slideData.save({})  # create new snapshot
+    Node.save_thumb(node.deck_id, node.id, thumb)
+    return {'thumb': image.base64_encode(thumb)}
+
 
 #@app.route('/api/node/<int:deck_id>/node/<int:node_id>/script/<int:script_id>/')
 #def api_script (deck_id, node_id, script_id):

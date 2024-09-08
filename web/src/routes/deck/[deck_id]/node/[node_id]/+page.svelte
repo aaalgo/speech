@@ -1,110 +1,287 @@
 <script>
-    import axios from 'axios';
-    import { Tabs, TabItem, Input, Textarea, Label } from 'flowbite-svelte';
-    import { Button } from 'flowbite-svelte';
+    import { tick } from 'svelte';
+    import { invalidate } from '$app/navigation';
+    import { Tabs, TabItem, Input, Textarea, Label, Button } from 'flowbite-svelte';
     import DeckIndex from './DeckIndex.svelte';
-    let slideContent = '';
-    let hint = '';
-    let generationOutput = '';
-
-    function handleGenerate() {
-        // Placeholder for generation logic
-        generationOutput = 'Generated content will appear here.';
-    }
+    import { linearize } from '$lib/deck_tree';
+	import { goto } from '$app/navigation';
     export let data;
 
-    function updateSlideIndex(slide, slides) {
-        let index = -1;
-        for (let i = 0; i < slides.length; i++) {
-            if (slides[i].id === slide.id) {
-                index = i;
-                break;
-            }
-        }
-        console.log('Slide index:', index);
-        return index;
-    }
-
-    $: slideIndex = updateSlideIndex(data.slide, data.slides);
-
     let leftPanelWidth = 10; // Initial width in percentage
-
-    function handleInsertSlide(event) {
-        // Placeholder for add slide logic
-        console.log('Add slide clicked', event.detail.slideIndex);
-        let index = event.detail.slideIndex;
-        let position = null;
-        if (index <= 0) {
-            position = data.slides[0].position - 1;
-        }
-        else if (index >= data.slides.length) {
-            position = data.slides[data.slides.length - 1].position + 1;
-        }
-        else {
-            position = (data.slides[index - 1].position + data.slides[index].position) / 2;
-        }
-        axios.post('/api/deck/add_slide/', {
-            deck_id: data.deck_id,
-            position: position,
-        })
-        .then(response => {
-            let newSlide = response.data;
-            data.slides = [...data.slides.slice(0, index), newSlide, ...data.slides.slice(index)];
-        })
-        .catch(error => {
-            console.error('Error adding slide:', error);
-        });
-    }
-
-    function handleDeleteSlide(event) {
-        axios.post('/api/deck/delete_slide/', {
-            slide_id: data.slide.id
-        })
-        .then(response => {
-            //data.slides = data.slides.filter(slide => slide.id !== data.slide.id);
-        })
-        .catch(error => {
-            console.error('Error deleting slide:', error);
-        });
-    }   
-
-    function handleReorderSlide(event) {
-        console.log('Reorder slide:', event.detail.oldIndex, event.detail.newIndex);
-        let oldIndex = event.detail.oldIndex;
-        let newIndex = event.detail.newIndex;
-        let slide = data.slides[oldIndex];
-        let slides = [
-            ...data.slides.slice(0, oldIndex),
-            ...data.slides.slice(oldIndex + 1)];
-        data.slides = [
-            ...slides.slice(0, newIndex),
-            slide,
-            ...slides.slice(newIndex)
-        ];
-        for (let i = 0; i < data.slides.length; i++) {
-            data.slides[i].index = i;
-        }
-        data.slides = data.slides;
-    }
-
     function handleDrag(e) {
         const containerWidth = e.target.parentElement.offsetWidth;
         const newWidth = (e.clientX / containerWidth) * 100;
         leftPanelWidth = Math.max(10, Math.min(90, newWidth));
     }
 
-    function handleSave() {
-        axios.post('/api/deck/update_slide/', {
-            slide_id: data.slide.id,
-            content: data.slide.content
-        })
-        .then(response => {
-            let newSlide = response.data;
-            data.slides[slideIndex].thumb = newSlide.thumb;
-        })
-        .catch(error => {
-            console.error('Error updating slide:', error);
+    function updateLinearized(current, root) {
+        let linearized = linearize(root);
+        let slideIndex = 1;
+        current.slideIndex = undefined;
+        for (let i = 0; i < linearized.length; i++) {
+            let node = linearized[i];
+            node.linearIndex = i;
+            node.isSlide = false;
+            if (node.ref !== undefined) {
+                ;// this is a closing node
+            }
+            else if (node.children === undefined) {
+                // this node is a slide
+                node.isSlide = true;
+                if (node.thumb === undefined || node.thumb === null) {
+                    node.thumb = data.blank_thumb;
+                }
+                node.slideIndex = slideIndex;
+                ++slideIndex;
+            }
+            if (node.node_id == current.id) {
+                current.linearIndex = i;
+                current.slideIndex = node.slideIndex;
+            }
+        }
+        if (current.slideIndex === undefined) {
+            alert('Node not found in linearized list');
+        }
+        console.log('linearized', linearized);
+        return linearized;
+    }
+
+    function cleanUpTreeForSave(node) {
+        let cleaned = {
+            'node_id': node.node_id,
+            'label': node.label,
+        }
+        if (node.children !== undefined) {
+            let children = [];
+            for (let child of node.children) {
+                children.push(cleanUpTreeForSave(child));
+            }
+            cleaned.children = children;
+        }
+        return cleaned;    
+    }   
+
+    $: linearized = updateLinearized(data.node, data.root);
+
+    function insertNodeIntoTree(node, ref, after) {
+        let parent = ref.parent;
+        let ref_index = null;
+        for (let i = 0; i < parent.children.length; i++) {
+            if (parent.children[i].node_id == ref.node_id) {
+                ref_index = i;
+                break;
+            }
+        }
+        if (ref_index === null) {
+            alert('Ref node not found in linearized list');
+            return false;
+        }
+        let left = null;
+        let right = null;
+        if (after) {
+            left = parent.children.slice(0, ref_index + 1);
+            right = parent.children.slice(ref_index + 1);
+        }
+        else {
+            left = parent.children.slice(0, ref_index);
+            right = parent.children.slice(ref_index);
+        }
+        parent.children = [...left, node, ...right];
+        return true;
+    }    
+
+    async function handleInsertSlide(event) {
+        // Placeholder for add slide logic
+        console.log('Add slide clicked', event.detail.linearIndex);
+        let linearIndex = event.detail.linearIndex;        
+        let after = event.detail.after;
+        let resp = null;
+        resp = await fetch('/api/node/create/', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                deck_id: data.deck_id
+            })
         });
+        if (!resp) {
+            alert('Error creating node');   
+            return;
+        }
+        let resp_json = await resp.json();
+        let new_node_id = resp_json.id;
+        let new_node = {
+            'node_id': new_node_id,
+            'label': 'New node'
+        };
+        let ref = linearized[linearIndex];
+        if (!insertNodeIntoTree(new_node, ref, after)) {
+            alert('Error inserting slide');
+            return;
+        }
+        resp = null;
+        resp = await fetch(`/api/deck/save/${data.deck_id}/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                root: cleanUpTreeForSave(data.root)
+            })
+        });
+        if (!resp) {
+            alert('Error saving deck');
+            return;
+        }
+        window.location.href = `/web/deck/${data.deck_id}/node/${new_node_id}/`;
+    }
+
+    function deleteNodeFromTree(node) {
+        let parent = node.parent;
+        let index = null;
+        for (let i = 0; i < parent.children.length; i++) {
+            if (parent.children[i].node_id == node.node_id) {
+                index = i;
+                break;
+            }
+        }
+        if (index === null) {
+            alert('Node not found in linearized list');
+            return false;
+        }
+        parent.children = [...parent.children.slice(0, index), ...parent.children.slice(index + 1)];
+        return true;
+    }
+
+    async function handleDeleteSlide(event) {
+        let linearIndex = event.detail.linearIndex;
+        let node = linearized[linearIndex];
+        // check node is a slide
+        if (!node.isSlide) {
+            alert('Node is not a slide');
+            return;
+        }
+        let goto_slide = null;
+        if (node.node_id !== data.node.id) {
+            goto_slide = data.node.id;
+        }
+        if (goto_slide === null) {
+            for (let i = linearIndex + 1; i < linearized.length; i++) {
+                if (linearized[i].isSlide) {
+                    goto_slide = linearized[i].node_id;
+                    break;
+                }
+            }
+        }
+        if (goto_slide === null) {
+            for (let i = linearIndex - 1; i >= 0; i--) {
+                if (linearized[i].isSlide) {
+                    goto_slide = linearized[i].node_id;
+                    break;
+                }
+            }
+        }
+        if (goto_slide === null) {
+            alert('Cannot delete last slide!');
+            return;
+        }
+        if (!deleteNodeFromTree(node)) {
+            alert('Error deleting slide');
+            return;
+        }
+        // now we need to post the tree
+        let resp = await fetch(`/api/deck/save/${data.deck_id}/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                root: cleanUpTreeForSave(data.root)
+            })
+        });
+        if (!resp) {
+            alert('Error saving deck');
+            return;
+        }
+        window.location.href = `/web/deck/${data.deck_id}/node/${goto_slide}/`;
+    }   
+
+    async function handleReorderSlide(event) {
+        console.log('Reorder slide:', event.detail.oldIndex, event.detail.newIndex);
+        let oldLinearIndex = event.detail.oldIndex;
+        let newLinearIndex = event.detail.newIndex;
+        console.log('oldLinearIndex', oldLinearIndex);
+        if (oldLinearIndex == newLinearIndex) {
+            return;
+        }
+        if (newLinearIndex > oldLinearIndex) {
+            newLinearIndex += 1;
+        }
+        let node = linearized[oldLinearIndex];
+        let insertRef = linearized[newLinearIndex];
+        console.log("insertRef", insertRef.node_id);
+        let after = false;
+        if (!insertRef.isSlide) {
+            // if the ref location is not slide, insert using previous slide
+            if (newLinearIndex > 0) {
+                insertRef = linearized[newLinearIndex - 1];
+                if (!insertRef.isSlide) {
+                    alert("Previous node is not a slide, please refresh the page");
+                    return;
+                }
+                after = true;
+            }
+            else {
+                alert("Cannot move slide to top of deck, please refresh the page");
+                return;
+            }
+        }
+
+        if (!deleteNodeFromTree(node)) {
+            alert('Error deleting slide');
+            return;
+        }
+        if (!insertNodeIntoTree(node, insertRef, after)) {
+            alert('Error inserting slide');
+            return;
+        }
+        let resp = await fetch(`/api/deck/save/${data.deck_id}/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                root: cleanUpTreeForSave(data.root)
+            })
+        }); 
+        if (!resp) {
+            alert('Error saving deck');
+            return;
+        }
+        window.location.href = `/web/deck/${data.deck_id}/node/${node.node_id}/`;
+    }
+
+    let generationOutput = '';
+
+    function handleGenerate() {
+        // Placeholder for generation logic
+        generationOutput = 'Generated content will appear here.';
+    }
+
+    async function handleGenerateSlide() {
+        let resp = await fetch(`/api/node/generate_slide/${data.node.id}/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                content: data.node.content,
+                hint: data.node.hint
+            })
+        });
+        let resp_json = await resp.json();
+        linearized[data.node.linearIndex].thumb = resp_json.thumb;
     }
 
     function handleGenerateScript() {
@@ -135,7 +312,7 @@
 
 <div class="flex h-screen">
     <div class="overflow-y-auto bg-gray-100" style="width: {leftPanelWidth}%;">
-    <DeckIndex deck_id={data.deck_id} slides={data.slides}
+    <DeckIndex deck_id={data.deck_id} slides={linearized}
         on:insertSlide={handleInsertSlide} 
         on:deleteSlide={handleDeleteSlide} 
         on:reorderSlide={handleReorderSlide}
@@ -151,24 +328,32 @@
 
     <div class="flex-grow overflow-y-auto" style="width: {100 - leftPanelWidth}%;">        
         <div class="p-4">
+            Slide {data.node.slideIndex} (id: {data.node.id})
         </div>
         
         <div class="flex-grow p-4">
             <Tabs>
                 <TabItem open title="Outline">
                     <div class="mb-4">
-                        <Label for="slideContent" class="mb-2">Slide {slideIndex + 1} Content</Label>
-                        <Textarea id="slideContent" rows="4" bind:value={data.slide.content} placeholder="Enter your slide content here..." />
+                        <Label for="slideContent" class="mb-2">Content</Label>
+                        <Textarea id="slideContent" rows="4" bind:value={data.node.content} placeholder="Enter your slide content here..." />
                     </div>
                     <div class="mb-4">
                         <Label for="hint" class="mb-2">Hint</Label>
-                        <Input id="hint" type="text" bind:value={hint} placeholder="Enter a hint for generation..." />
+                        <Input id="hint" type="text" bind:value={data.node.hint} placeholder="Enter a hint for generation..." />
                     </div>
-                    <Button on:click={handleGenerateScript}>Generate Script</Button>
+                    <Button on:click={handleGenerateSlide}>Generate Slide</Button>
+                    <Button on:click={handleGenerateScript}>Generate Script</Button>                    
                 </TabItem>
-                <TabItem title="Configuration">                    
+                <TabItem title="Script">                    
+                    <div class="mb-4">
+                        <Label for="slideScript" class="mb-2">Script</Label>
+                        <Textarea id="slideScript" rows="4" bind:value={data.node.script}/>
+                    </div>
+                    <Button on:click={handleGenerateAV}>Generate Audio/Video</Button>                    
+
                 </TabItem>
-                <TabItem title="Output">
+                <TabItem title="Audio/Video">
                     <Textarea id="generationOutput" rows="4" bind:value={generationOutput} placeholder="Generated content will appear here..." readonly />
                     <Button on:click={handleGenerateAV}>Generate Audio</Button>
                 </TabItem>
