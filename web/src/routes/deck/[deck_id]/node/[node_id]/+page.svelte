@@ -1,7 +1,7 @@
 <script>
     import { tick } from 'svelte';
     import { invalidate, goto } from '$app/navigation';
-    import { Tabs, TabItem, Input, Textarea, Label, Button } from 'flowbite-svelte';
+    import { Tabs, TabItem, Input, Textarea, Label, Button, Spinner } from 'flowbite-svelte';
     import DeckIndex from './DeckIndex.svelte';
     import { linearize } from '$lib/deck_tree';
     export let data;
@@ -280,8 +280,10 @@
         }
     }
 
+    let loadingSpinner = false;
 
     async function handleGenerateSlide() {
+        loadingSpinner = true;
         let resp = await fetch(`/api/node/generate_slide/${data.node.id}/`, {
             method: 'POST',
             headers: {
@@ -292,7 +294,12 @@
                 hint: data.node.hint
             })
         });
-        let resp_json = await resp.json();
+        loadingSpinner = false;
+        try {
+            let resp_json = await resp.json();
+        } catch (error) {
+            console.error('Error parsing response:', error);
+        }
         linearized[data.node.linearIndex].thumb = resp_json.thumb;
         data.node.image = resp_json.image;
     }
@@ -352,21 +359,31 @@
             <Tabs>
                 {#if data.node.isSlide}
                 <TabItem open title="Outline">
-                    <div class="mb-4">
-                        <Label for="slideContent" class="mb-2">Content</Label>
-                        <Textarea id="slideContent" rows="4" bind:value={data.node.content} placeholder="Enter your slide content here..." />
-                    </div>
-                    <div class="mb-4">
-                        <Label for="hint" class="mb-2">Hint</Label>
-                        <Textarea id="hint" rows="2" bind:value={data.node.hint} placeholder="Enter a hint for generation..." />
-                    </div>
-                    <Button on:click={handleGenerateSlide}>Generate Slide</Button>
-                    <Button on:click={handleGenerateScript}>Generate Script</Button>                    
-
-                        <div class="mb-4">
-                            <Label for="slideImage" class="mb-2">Slide Image</Label>
-                            <img id="slideImage" src="data:image/png;base64,{data.node.image}" alt="Slide Image" class="max-h-full w-auto" style="height: 100%; width: auto;" />
+                    <div class="flex">
+                        <div class="w-1/2 pr-4">
+                            <div class="mb-4">
+                                <Label for="slideContent" class="mb-2">Content</Label>
+                                <Textarea id="slideContent" rows="4" bind:value={data.node.content} placeholder="Enter your slide content here..." />
+                            </div>
+                            <div class="mb-4">
+                                <Label for="hint" class="mb-2">Hint</Label>
+                                <Textarea id="hint" rows="2" bind:value={data.node.hint} placeholder="Enter a hint for generation..." />
+                            </div>
+                            <Button on:click={handleGenerateSlide}>Generate Slide</Button>
+                            <Button on:click={handleGenerateScript}>Generate Script</Button>
                         </div>
+                        <div class="w-1/2 pl-4">
+                        {#if loadingSpinner}
+                            <Spinner />
+                        {:else}
+                            <div class="mb-4">
+                                <Label for="slideImage" class="mb-2">Slide Image</Label>
+                                <img id="slideImage" src="data:image/png;base64,{data.node.image}" alt="Slide Image" class="max-h-full w-auto" style="height: 100%; width: auto;" />
+                               
+                            </div>
+                        {/if}
+                        </div>
+                    </div>
 
                 </TabItem>                
                 <TabItem title="Script">                    
