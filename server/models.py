@@ -6,6 +6,7 @@ from sqlalchemy import ForeignKey
 from sqlalchemy.types import Integer, Double,Text, BLOB, String, Enum, DateTime
 from sqlalchemy.orm import DeclarativeBase, mapped_column, relationship, Session
 from sqlalchemy.schema import PrimaryKeyConstraint
+import base64
 import cv2
 from storage import DataDirectory
 import image
@@ -91,6 +92,7 @@ class Node (Base):
         data['id'] = self.id
         data['deck_id'] = self.deck_id
         data['thumb'] = Node.base64_thumb(self.deck_id, self.id)
+        data['image'] = Node.base64_image(self.deck_id, self.id)
         return data
 
     def save (self, data):
@@ -101,13 +103,25 @@ class Node (Base):
         thumb_path = os.path.join(config.deck_path(deck_id), 'nodes', str(node_id), 'current', 'slide', 'current', 'thumb.png')
         thumb = None
         if os.path.exists(thumb_path):
-            thumb = cv2.imread(thumb_path, cv2.IMREAD_COLOR)
-            thumb = image.base64_encode(thumb)
+            with open(thumb_path, 'rb') as f:
+                buf = base64.b64encode(f.read())
+            thumb = buf.decode('ascii')
+        return thumb
+
+    @staticmethod
+    def base64_image (deck_id, node_id):
+        thumb_path = os.path.join(config.deck_path(deck_id), 'nodes', str(node_id), 'current', 'slide', 'current', 'slide.png')
+        thumb = None
+        if os.path.exists(thumb_path):
+            with open(thumb_path, 'rb') as f:
+                buf = base64.b64encode(f.read())
+            thumb = buf.decode('ascii')
         return thumb
     
     @staticmethod
     def save_thumb (deck_id, node_id, thumb):
         thumb_path = os.path.join(config.deck_path(deck_id), 'nodes', str(node_id), 'current', 'slide', 'current', 'thumb.png')
+        print(thumb_path)
         cv2.imwrite(thumb_path, thumb)
 
 if __name__ == '__main__':

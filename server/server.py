@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 import os
 import json
+import subprocess as sp
 from collections import defaultdict
 from flask import Flask, jsonify, request, redirect, send_file
 from flask_sqlalchemy import SQLAlchemy
@@ -128,9 +129,38 @@ def api_node_generate_slide (node_id):
     # update slide data
     slideData = SlideData(node.data.current())
     slideData.save({})  # create new snapshot
-    Node.save_thumb(node.deck_id, node.id, thumb)
-    return {'thumb': image.base64_encode(thumb)}
 
+    root = slideData.current()
+    md_path = os.path.join(root, 'slide.md')
+    pdf_path = os.path.join(root, 'slide.pdf')
+    image_path = os.path.join(root, 'slide.png')
+    thumb_path = os.path.join(root, 'thumb.png')
+    with open(md_path, 'w') as f:
+        f.write("""---
+marp: true
+theme: default
+class: invert
+size: 16:9
+style: |
+  img {background-color: transparent!important;}
+  a:hover, a:active, a:focus {text-decoration: none;}
+  header a {color: #ffffff !important; font-size: 30px;}
+  footer {color: #148ec8;}
+header: '[&#9671;](#1 " ")'
+footer: ''
+---
+""")
+        f.write(data['content'])
+    cmd = f"npx @marp-team/marp-cli {md_path} --pdf --allow-local-file"
+    sp.call(cmd, shell=True)
+    cmd = f"convert {pdf_path} {image_path}"
+    sp.call(cmd, shell=True)
+    cmd = f"convert {image_path} -resize {config.THUMB_WIDTH}x{config.THUMB_HEIGHT} {thumb_path}"
+    sp.call(cmd, shell=True)
+    print(image_path)
+    return {'thumb': Node.base64_thumb(node.deck_id, node.id),
+            'image': Node.base64_image(node.deck_id, node.id)
+            }
 
 #@app.route('/api/node/<int:deck_id>/node/<int:node_id>/script/<int:script_id>/')
 #def api_script (deck_id, node_id, script_id):

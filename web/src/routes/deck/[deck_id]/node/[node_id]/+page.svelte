@@ -1,10 +1,9 @@
 <script>
     import { tick } from 'svelte';
-    import { invalidate } from '$app/navigation';
+    import { invalidate, goto } from '$app/navigation';
     import { Tabs, TabItem, Input, Textarea, Label, Button } from 'flowbite-svelte';
     import DeckIndex from './DeckIndex.svelte';
     import { linearize } from '$lib/deck_tree';
-	import { goto } from '$app/navigation';
     export let data;
 
     let leftPanelWidth = 10; // Initial width in percentage
@@ -17,13 +16,15 @@
     function updateLinearized(current, root) {
         let linearized = linearize(root);
         let slideIndex = 1;
+        current.isSlide = false;
         current.slideIndex = undefined;
         for (let i = 0; i < linearized.length; i++) {
             let node = linearized[i];
             node.linearIndex = i;
             node.isSlide = false;
+            node.isNode = true;
             if (node.ref !== undefined) {
-                ;// this is a closing node
+                node.isNode = false;
             }
             else if (node.children === undefined) {
                 // this node is a slide
@@ -36,11 +37,9 @@
             }
             if (node.node_id == current.id) {
                 current.linearIndex = i;
+                current.isSlide = node.isSlide;
                 current.slideIndex = node.slideIndex;
             }
-        }
-        if (current.slideIndex === undefined) {
-            alert('Node not found in linearized list');
         }
         console.log('linearized', linearized);
         return linearized;
@@ -264,10 +263,23 @@
 
     let generationOutput = '';
 
-    function handleGenerate() {
-        // Placeholder for generation logic
-        generationOutput = 'Generated content will appear here.';
+    async function handleSave() {
+        let resp = await fetch(`/api/node/save/${data.node.id}/`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                content: data.node.content,
+                hint: data.node.hint
+            })
+        });
+        if (!resp) {
+            alert('Error saving node');
+            return;
+        }
     }
+
 
     async function handleGenerateSlide() {
         let resp = await fetch(`/api/node/generate_slide/${data.node.id}/`, {
@@ -282,6 +294,7 @@
         });
         let resp_json = await resp.json();
         linearized[data.node.linearIndex].thumb = resp_json.thumb;
+        data.node.image = resp_json.image;
     }
 
     function handleGenerateScript() {
@@ -328,11 +341,16 @@
 
     <div class="flex-grow overflow-y-auto" style="width: {100 - leftPanelWidth}%;">        
         <div class="p-4">
-            Slide {data.node.slideIndex} (id: {data.node.id})
+            {#if data.node.isSlide}
+                Slide {data.node.slideIndex} (id: {data.node.id})
+            {:else}
+                Node {data.node.label} (id: {data.node.id})
+            {/if}
         </div>
         
         <div class="flex-grow p-4">
             <Tabs>
+                {#if data.node.isSlide}
                 <TabItem open title="Outline">
                     <div class="mb-4">
                         <Label for="slideContent" class="mb-2">Content</Label>
@@ -340,11 +358,17 @@
                     </div>
                     <div class="mb-4">
                         <Label for="hint" class="mb-2">Hint</Label>
-                        <Input id="hint" type="text" bind:value={data.node.hint} placeholder="Enter a hint for generation..." />
+                        <Textarea id="hint" rows="2" bind:value={data.node.hint} placeholder="Enter a hint for generation..." />
                     </div>
                     <Button on:click={handleGenerateSlide}>Generate Slide</Button>
                     <Button on:click={handleGenerateScript}>Generate Script</Button>                    
-                </TabItem>
+
+                        <div class="mb-4">
+                            <Label for="slideImage" class="mb-2">Slide Image</Label>
+                            <img id="slideImage" src="data:image/png;base64,{data.node.image}" alt="Slide Image" class="max-h-full w-auto" style="height: 100%; width: auto;" />
+                        </div>
+
+                </TabItem>                
                 <TabItem title="Script">                    
                     <div class="mb-4">
                         <Label for="slideScript" class="mb-2">Script</Label>
@@ -357,6 +381,15 @@
                     <Textarea id="generationOutput" rows="4" bind:value={generationOutput} placeholder="Generated content will appear here..." readonly />
                     <Button on:click={handleGenerateAV}>Generate Audio</Button>
                 </TabItem>
+                {:else}
+                <TabItem open title="Outline">
+                    <div class="mb-4">
+                        <Label for="hint" class="mb-2">Hint</Label>
+                        <Textarea id="hint" rows="4" bind:value={data.node.hint} placeholder="Enter a hint for generation..." />
+                    </div>
+                    <Button on:click={handleSave}>Save</Button>                    
+                </TabItem>                
+                {/if}
             </Tabs>
         </div>
     </div>

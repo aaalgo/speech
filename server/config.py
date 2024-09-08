@@ -8,7 +8,7 @@ HOST = '0.0.0.0'
 DATA_ROOT = os.path.join(HOME, 'data')
 
 THUMB_WIDTH = 128
-THUMB_HEIGHT = 96
+THUMB_HEIGHT = 72
 
 DB_URI = 'mysql+mysqldb://speech:speech@localhost:3306/speech'
 
