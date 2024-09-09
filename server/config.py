@@ -2,7 +2,7 @@ import os
 
 HOME = os.path.dirname(os.path.abspath(__file__))
 
-PORT = 18200
+PORT = 18820
 HOST = '0.0.0.0'
 
 DATA_ROOT = os.path.join(HOME, 'data')

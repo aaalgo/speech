@@ -6,6 +6,13 @@
     import { linearize } from '$lib/deck_tree';
     export let data;
 
+    function word_count(text) {
+        return text.split(/\s+/).filter(Boolean).length;
+    }
+
+    $: script_words = word_count(data.node.script);
+    $: menuscript_words = word_count(data.node.menuscript);
+
     let leftPanelWidth = 10; // Initial width in percentage
     function handleDrag(e) {
         const containerWidth = e.target.parentElement.offsetWidth;
@@ -18,6 +25,9 @@
         let slideIndex = 1;
         current.isSlide = false;
         current.slideIndex = undefined;
+        if (current.hint === undefined) {
+            current.hint = '';
+        }
         for (let i = 0; i < linearized.length; i++) {
             let node = linearized[i];
             node.linearIndex = i;
@@ -45,6 +55,8 @@
         return linearized;
     }
 
+    $: linearized = updateLinearized(data.node, data.root);
+
     function cleanUpTreeForSave(node) {
         let cleaned = {
             'node_id': node.node_id,
@@ -59,8 +71,6 @@
         }
         return cleaned;    
     }   
-
-    $: linearized = updateLinearized(data.node, data.root);
 
     function insertNodeIntoTree(node, ref, after) {
         let parent = ref.parent;
@@ -261,7 +271,14 @@
         window.location.href = `/web/deck/${data.deck_id}/node/${node.node_id}/`;
     }
 
-    let generationOutput = '';
+    function cleanupNodeForSave(node) {
+        return JSON.stringify({
+            content: node.content,
+            slideHint: node.slideHint,
+            scriptHint: node.scriptHint,
+            menuscriptHint: node.menuscriptHint
+        });
+    }
 
     async function handleSave() {
         let resp = await fetch(`/api/node/save/${data.node.id}/`, {
@@ -269,10 +286,7 @@
             headers: {
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({
-                content: data.node.content,
-                hint: data.node.hint
-            })
+            body: cleanupNodeForSave(data.node)
         });
         if (!resp) {
             alert('Error saving node');
@@ -280,57 +294,108 @@
         }
     }
 
-    let loadingSpinner = false;
+    let slideSpinner = false;
+    let scriptSpinner = false;
+    let menuscriptSpinner = false;
+    let audioSpinner = false;    
+    let videoSpinner = false;
+    let activeTab = 'slide'; // Default to 'outline' tab
 
     async function handleGenerateSlide() {
-        loadingSpinner = true;
-        let resp = await fetch(`/api/node/generate_slide/${data.node.id}/`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                content: data.node.content,
-                hint: data.node.hint
-            })
-        });
-        loadingSpinner = false;
-        try {
+        slideSpinner = true;
+        do {
+            let resp = await fetch(`/api/node/generate_slide/${data.node.id}/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: cleanupNodeForSave(data.node)
+            });
+            if (!resp) {
+                alert('Error generating slide');
+                break;
+            }
+            let resp_json = null;
+            try {
+                resp_json = await resp.json();
+                console.log('resp_json', resp_json);
+            } catch (error) {
+                console.error('Error parsing response:', error);
+                break;
+            }
+            linearized[data.node.linearIndex].thumb = resp_json.thumb;
+            data.node.image = resp_json.image;
+        } while (false);
+        slideSpinner = false;
+    }
+
+    async function handleGenerateScript() {
+        scriptSpinner = true;
+        do {
+            let resp = await fetch(`/api/node/generate_script/${data.node.id}/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: cleanupNodeForSave(data.node)
+            });
+            if (!resp) {
+                alert('Error generating script');
+                break;
+            }
             let resp_json = await resp.json();
-        } catch (error) {
-            console.error('Error parsing response:', error);
-        }
-        linearized[data.node.linearIndex].thumb = resp_json.thumb;
-        data.node.image = resp_json.image;
+            data.node.script = resp_json.script;
+            data.node.prompt = resp_json.prompt;
+        } while (false);
+        scriptSpinner = false;
     }
 
-    function handleGenerateScript() {
-        handleSave();
-        axios.post('/api/deck/generate_script/', {
-            slide_id: data.slide.id,
-        })
-        .then(response => {
-            generationOutput = response.data;
-        })
-        .catch(error => {
-            console.error('Error generating script:', error);   
-        });
+    async function handleGenerateMenuscript() {
+        menuscriptSpinner = true;
+        do {
+            let resp = await fetch(`/api/node/generate_menuscript/${data.node.id}/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: cleanupNodeForSave(data.node)
+            });
+            if (!resp) {
+                alert('Error generating menuscript');
+                break;
+            }
+            let resp_json = await resp.json();
+            data.node.menuscript = resp_json.menuscript;
+        } while (false);
+        menuscriptSpinner = false;
     }
 
-    function handleGenerateAV() {
-        axios.post('/api/deck/generate_av/', {
-            slide_id: data.slide.id,
-        })
-        .then(response => { 
-            generationOutput = response.data;
-        })
-        .catch(error => {
-            console.error('Error generating AV:', error);
-        });
+    async function handleGenerateAudio() {
+        audioSpinner = true;
+        do {
+            let resp = await fetch(`/api/node/generate_audio/${data.node.id}/`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: cleanupNodeForSave(data.node)
+            });
+            if (!resp) {
+                alert('Error generating AV');
+                break;
+            }
+            let resp_json = await resp.json();            
+            data.node.audioUrl = resp_json.audioUrl;
+        } while (false);
+        audioSpinner = false;
     }       
+
+    async function handleGenerateVideo() {
+
+    }
 </script>
 
-<div class="flex h-screen">
+<div class="flex h-screen text-lg">
     <div class="overflow-y-auto bg-gray-100" style="width: {leftPanelWidth}%;">
     <DeckIndex deck_id={data.deck_id} slides={linearized}
         on:insertSlide={handleInsertSlide} 
@@ -347,7 +412,7 @@
     -->
 
     <div class="flex-grow overflow-y-auto" style="width: {100 - leftPanelWidth}%;">        
-        <div class="p-4">
+        <div class="p-4 text-xl">
             {#if data.node.isSlide}
                 Slide {data.node.slideIndex} (id: {data.node.id})
             {:else}
@@ -355,61 +420,126 @@
             {/if}
         </div>
         
-        <div class="flex-grow p-4">
-            <Tabs>
+        <div class="flex-grow p-4 flex">
+            <!-- Left side: Content from old "Outline" TabItem -->
+            <div class="w-1/2 pr-4">
+                <div class="mb-4">
+                    <Label for="slideContent" class="mb-2 text-lg">Content</Label>
+                    <Textarea id="slideContent" rows="20" bind:value={data.node.content} placeholder="Enter your slide content here..." class="text-xl" />
+                </div>
+            </div>
+
+            <!-- Right side: Tabs structure -->
+            <div class="w-1/2 pl-4">
                 {#if data.node.isSlide}
-                <TabItem open title="Outline">
-                    <div class="flex">
-                        <div class="w-1/2 pr-4">
+                    <Tabs bind:selected={activeTab}>
+                        <TabItem open={activeTab === 'slide'} title="Slide">
                             <div class="mb-4">
-                                <Label for="slideContent" class="mb-2">Content</Label>
-                                <Textarea id="slideContent" rows="4" bind:value={data.node.content} placeholder="Enter your slide content here..." />
+                                <Label for="slideHint" class="mb-2 text-lg">Hint</Label>
+                                <Textarea id="slideHint" rows="2" bind:value={data.node.slideHint}  placeholder="Enter additional hint for generation..." class="text-lg" />
                             </div>
+                            <Button on:click={handleGenerateSlide} class="text-lg" disabled={slideSpinner}>Update</Button>
+                            <div class="mb-4 mt-4">
+                                {#if slideSpinner}
+                                    <Spinner />
+                                {:else}
+                                    <img id="slideImage" src="data:image/png;base64,{data.node.image}" alt="Slide Image" class="max-h-full w-auto" style="height: 100%; width: auto;" />
+                                {/if}
+                            </div>
+                        </TabItem>
+                        <TabItem open={activeTab === 'script'} title="Script">
                             <div class="mb-4">
-                                <Label for="hint" class="mb-2">Hint</Label>
-                                <Textarea id="hint" rows="2" bind:value={data.node.hint} placeholder="Enter a hint for generation..." />
+                                <Label for="scriptHint" class="mb-2 text-lg">Hint</Label>
+                                <Textarea id="scriptHint" rows="2" bind:value={data.node.scriptHint}  placeholder="Enter additional hint for generation..." class="text-lg" />
                             </div>
-                            <Button on:click={handleGenerateSlide}>Generate Slide</Button>
-                            <Button on:click={handleGenerateScript}>Generate Script</Button>
-                        </div>
-                        <div class="w-1/2 pl-4">
-                        {#if loadingSpinner}
-                            <Spinner />
-                        {:else}
+                            <Button on:click={handleGenerateScript} class="text-lg" disabled={scriptSpinner}>Update</Button>
+                            {#if scriptSpinner}
+                                <Spinner />
+                            {:else}
+                                <div class="mb-4">
+                                    <Tabs>                                        
+                                        <TabItem open title="Script">
+                                            <Label for="slideScript" class="mb-2 text-lg">Script ({script_words} words)</Label>
+                                            <Textarea id="slideScript" rows="16" bind:value={data.node.script} class="text-lg"/>
+                                        </TabItem>
+                                        <TabItem title="Prompt">
+                                            <Label for="slidePrompt" class="mb-2 text-lg">Prompt</Label>
+                                            <Textarea id="slidePrompt" rows="16" bind:value={data.node.prompt} class="text-lg"/>
+                                        </TabItem>
+                                    </Tabs>
+                                </div>
+                            {/if}
+                        </TabItem>
+                        <TabItem open={activeTab === 'audio'} title="Audio">
+                            <!--
                             <div class="mb-4">
-                                <Label for="slideImage" class="mb-2">Slide Image</Label>
-                                <img id="slideImage" src="data:image/png;base64,{data.node.image}" alt="Slide Image" class="max-h-full w-auto" style="height: 100%; width: auto;" />
-                               
+                                <Label for="avHint" class="mb-2 text-lg">Hint</Label>
+                                <Textarea id="avHint" rows="2" bind:value={data.node.avHint} placeholder="Enter a hint for generation..." class="text-lg" />
                             </div>
-                        {/if}
-                        </div>
-                    </div>
-
-                </TabItem>                
-                <TabItem title="Script">                    
-                    <div class="mb-4">
-                        <Label for="slideScript" class="mb-2">Script</Label>
-                        <Textarea id="slideScript" rows="4" bind:value={data.node.script}/>
-                    </div>
-                    <Button on:click={handleGenerateAV}>Generate Audio/Video</Button>                    
-
-                </TabItem>
-                <TabItem title="Audio/Video">
-                    <Textarea id="generationOutput" rows="4" bind:value={generationOutput} placeholder="Generated content will appear here..." readonly />
-                    <Button on:click={handleGenerateAV}>Generate Audio</Button>
-                </TabItem>
+                        -->
+                            <Button on:click={handleGenerateAudio} class="text-lg" disabled={audioSpinner}>Update</Button>
+                            {#if audioSpinner}
+                            <br/>
+                                <div class='p-4 mb-4'>
+                                    <Spinner /> (Takes about 20s)
+                                </div>
+                            {:else}
+                                {#if data.node.audioUrl}
+                                    <div class="mb-4">
+                                        <Label for="audioPlayer" class="mb-2 text-lg">Audio</Label>
+                                        <audio id="audioPlayer" controls src={data.node.audioUrl}>
+                                            Your browser does not support the audio element.
+                                        </audio>
+                                    </div>
+                                    <div class="mb-4">
+                                        <Label for="scriptDisplay" class="mb-2 text-lg">Script ({script_words} words)</Label>
+                                        <Textarea id="scriptDisplay" rows="32" value={data.node.script} readonly class="text-lg"/>
+                                    </div>    
+                                {/if}
+                            {/if}
+                        </TabItem>
+                        <TabItem open={activeTab === 'video'} title="Video">
+                            <Button on:click={handleGenerateVideo} class="text-lg" disabled={videoSpinner || true}>Generate Video</Button>
+                            {#if videoSpinner}
+                            <div class='mb-4'>
+                                <Spinner />
+                            </div>
+                            {:else}
+                                {#if data.node.videoUrl}
+                                    <div class="mb-4">
+                                        <Label for="videoPlayer" class="mb-2 text-lg">Video</Label>
+                                        <video id="videoPlayer" controls src={data.node.videoUrl}>
+                                            Your browser does not support the video element.
+                                        </video>
+                                    </div>
+                                    <div class="mb-4">
+                                        <Label for="scriptVideoDisplay" class="mb-2 text-lg">Script (Read-only)</Label>
+                                        <Textarea id="scriptVideoDisplay" rows="16" value={data.node.script} readonly class="text-lg"/>
+                                    </div>    
+                                {/if}
+                            {/if}
+                        </TabItem>
+                        <TabItem open={activeTab === 'menuscript'} title="Menuscript">
+                            <div class="mb-4">
+                                <Label for="menuscriptHint" class="mb-2 text-lg">Hint</Label>
+                                <Textarea id="menuscriptHint" rows="2" bind:value={data.node.menuscriptHint} placeholder="Enter additional hint for generation..." class="text-lg" />
+                            </div>
+                            <Button on:click={handleGenerateMenuscript} class="text-lg" disabled={menuscriptSpinner}>Update</Button>
+                            {#if menuscriptSpinner}
+                            <div class='mb-4'>
+                                <Spinner />
+                            </div>
+                            {:else}
+                                <div class="mb-4">
+                                    <Label for="slideMenuscript" class="mb-2 text-lg">Menuscript ({menuscript_words} words)</Label>
+                                    <Textarea id="slideMenuscript" rows="32" bind:value={data.node.menuscript} class="text-lg"/>
+                                </div>
+                            {/if}
+                        </TabItem>
+                    </Tabs>
                 {:else}
-                <TabItem open title="Outline">
-                    <div class="mb-4">
-                        <Label for="hint" class="mb-2">Hint</Label>
-                        <Textarea id="hint" rows="4" bind:value={data.node.hint} placeholder="Enter a hint for generation..." />
-                    </div>
-                    <Button on:click={handleSave}>Save</Button>                    
-                </TabItem>                
                 {/if}
-            </Tabs>
+            </div>
         </div>
     </div>
 </div>
-
-

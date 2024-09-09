@@ -17,4 +17,12 @@ def base64_encode (image):
     buf = cv2.imencode('.png', image)[1].tobytes()
     buf = base64.b64encode(buf)
     return buf.decode('ascii')
+
+def read_base64 (path):
+    try:
+        with open(path, 'rb') as f:
+            return base64.b64encode(f.read()).decode('ascii')
+    except Exception as e:        
+        return None
+    
     

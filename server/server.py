@@ -2,6 +2,7 @@
 import os
 import json
 import subprocess as sp
+import pickle
 from collections import defaultdict
 from flask import Flask, jsonify, request, redirect, send_file
 from flask_sqlalchemy import SQLAlchemy
@@ -9,6 +10,11 @@ from sqlalchemy import text
 from models import *
 from schema import AutoSchema
 import image
+from llm import GPT
+from gen_slide import gen_slide
+from gen_script import gen_script
+from gen_menuscript import gen_menuscript
+from gen_audio import gen_audio
 import config
 
 app = Flask(__name__)
@@ -25,14 +31,14 @@ def index ():
 
 @app.route('/web/')
 def app_index ():
-    return send_file(f'web/build/index.html')
+    return send_file(f'../web/build/index.html')
 
 @app.route('/web/<path:filename>')
 def app_file (filename): 
     try:
-        return send_file(f'web/build/{filename}')
+        return send_file(f'../web/build/{filename}')
     except FileNotFoundError:
-        return send_file(f'web/build/index.html')
+        return send_file(f'../web/build/index.html')
     
 # ================================ General DB API  ================================
 
@@ -72,21 +78,20 @@ def api_deck_create():
         }})
     return jsonify({'id':deck.id})
 
-def update_tree(deck_id, node):
+def update_meta_tree(deck_id, node):
     node_id = node['node_id']
     node['thumb'] = Node.base64_thumb(deck_id, node_id)
-    print(node['thumb'])
     if not 'children' in node:
         return
     for child in node['children']:
-        update_tree(deck_id, child)
+        update_meta_tree(deck_id, child)
 
 @app.route('/api/deck/load/<int:deck_id>/')
 def api_deck_load (deck_id):
     deck = db.session.get(Deck, deck_id)
     data = deck.load()
     if 'root' in data:
-        update_tree(deck_id, data['root'])
+        update_meta_tree(deck_id, data['root'])
     data['blank_thumb'] = image.base64_encode(image.empty())
     return data;
 
@@ -112,62 +117,48 @@ def api_node_load (node_id):
     node = db.session.get(Node, node_id)
     return node.load()
 
+def save_node(node_id, data):
+    node = db.session.get(Node, node_id)
+    node.content.save(data)
+    return node
 
 @app.route('/api/node/save/<int:node_id>/', methods=['POST'])
 def api_node_save (node_id):
-    data = request.json
-    node = db.session.get(Node, node_id)
-    node.save(data)
+    node = save_node(node_id, request.json)
     return {'id':node.id}
 
 @app.route('/api/node/generate_slide/<int:node_id>/', methods=['POST'])
 def api_node_generate_slide (node_id):
-    data = request.json
-    node = db.session.get(Node, node_id)
-    node.save(data)
-    thumb = image.text(data['content'])
+    node = save_node(node_id, request.json)
     # update slide data
-    slideData = SlideData(node.data.current())
-    slideData.save({})  # create new snapshot
-
-    root = slideData.current()
-    md_path = os.path.join(root, 'slide.md')
-    pdf_path = os.path.join(root, 'slide.pdf')
-    image_path = os.path.join(root, 'slide.png')
-    thumb_path = os.path.join(root, 'thumb.png')
-    with open(md_path, 'w') as f:
-        f.write("""---
-marp: true
-theme: default
-class: invert
-size: 16:9
-style: |
-  img {background-color: transparent!important;}
-  a:hover, a:active, a:focus {text-decoration: none;}
-  header a {color: #ffffff !important; font-size: 30px;}
-  footer {color: #148ec8;}
-header: '[&#9671;](#1 " ")'
-footer: ''
----
-""")
-        f.write(data['content'])
-    cmd = f"npx @marp-team/marp-cli {md_path} --pdf --allow-local-file"
-    sp.call(cmd, shell=True)
-    cmd = f"convert {pdf_path} {image_path}"
-    sp.call(cmd, shell=True)
-    cmd = f"convert {image_path} -resize {config.THUMB_WIDTH}x{config.THUMB_HEIGHT} {thumb_path}"
-    sp.call(cmd, shell=True)
-    print(image_path)
-    return {'thumb': Node.base64_thumb(node.deck_id, node.id),
-            'image': Node.base64_image(node.deck_id, node.id)
-            }
-
-#@app.route('/api/node/<int:deck_id>/node/<int:node_id>/script/<int:script_id>/')
-#def api_script (deck_id, node_id, script_id):
-#    script = db.session.get(Script, script_id)
-#    return jsonify(script.to_dict())    
+    node.slide.save({})  # create new snapshot
+    return gen_slide(node.content.current('data.json'), node.slide.current())
 
 
+@app.route('/api/node/generate_script/<int:node_id>/', methods=['POST'])
+def api_node_generate_script (node_id):
+    node = save_node(node_id, request.json)
+    node.script.save({})  # create new snapshot
+    return gen_script(node.content.current('data.json'), node.script.current())
+
+@app.route('/api/node/generate_menuscript/<int:node_id>/', methods=['POST'])
+def api_node_generate_menuscript(node_id):
+    node = save_node(node_id, request.json)
+    node.menuscript.save({})  # create new snapshot
+    return gen_menuscript(node.content.current('data.json'), node.menuscript.current())
+
+@app.route('/api/node/generate_audio/<int:node_id>/', methods=['POST'])
+def api_node_generate_audio(node_id):
+    node = save_node(node_id, request.json)
+    node.audio.save({})  # create new snapshot
+    if  not gen_audio(node.content.current('data.json'), node.audio.current()):
+        return jsonify({'error': 'Failed to generate audio'}), 500
+    return {'audioUrl': f'/api/node/download_audio/{node_id}/'}
+
+@app.route('/api/node/download_audio/<int:node_id>/')
+def api_node_download_audio(node_id):
+    node = db.session.get(Node, node_id)
+    return send_file(node.audio.current('audio.mp3'), as_attachment=True)
 
 if __name__ == '__main__':
     app.run(host=config.HOST, port=config.PORT, debug=True)

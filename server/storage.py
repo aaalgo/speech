@@ -33,8 +33,11 @@ class VersionedDirectory:
             return None
         return self.__load__(path)
 
-    def current(self):
-        return os.path.join(self.root, 'current')
+    def current(self, sub: str = None):
+        if sub is None:
+            return os.path.join(self.root, 'current')
+        else:
+            return os.path.join(self.root, 'current', sub)
 
     def __save__(self, snapshot: str, data):
         with open(os.path.join(snapshot, 'data.json'), 'w') as f:

@@ -24,7 +24,7 @@
       })
       .catch(error => {
         console.error('Error creating deck:', error);
-        alert('Error creating deck:', error);
+        alert('Error creating deck');
       });
   }
 </script>
@@ -37,17 +37,20 @@
       <TableHeadCell>ID</TableHeadCell>
       <TableHeadCell>Name</TableHeadCell>
       <TableHeadCell>Update Time</TableHeadCell>
+      <TableHeadCell>Actions</TableHeadCell>
     </TableHead>
     <TableBody>
       {#each data.decks as deck}
         <TableBodyRow>
           <TableBodyCell>{deck.id}</TableBodyCell>
-          <TableBodyCell><a href="/web/deck/{deck.id}/">{deck.name}</a></TableBodyCell>
+          <TableBodyCell>{deck.name}</TableBodyCell>
           <TableBodyCell>{deck.update_time}</TableBodyCell>
+          <TableBodyCell>
+            <Button href="/web/deck/{deck.id}/">Edit Slides</Button>
+            <Button disabled>Present</Button>
+          </TableBodyCell>
         </TableBodyRow>
       {/each}
     </TableBody>
   </Table>
 </div>
-
-
