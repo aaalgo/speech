@@ -151,7 +151,12 @@ def api_node_generate_menuscript(node_id):
 def api_node_generate_audio(node_id):
     node = save_node(node_id, request.json)
     node.audio.save({})  # create new snapshot
-    if  not gen_audio(node.content.current('data.json'), node.audio.current()):
+    json_path = node.content.current('data.json')
+    output_path = node.audio.current()
+    cmd = f'./gen_audio.py --input {json_path} --output {output_path}'
+    sp.call(cmd, shell=True)
+    audio_path = node.audio.current("audio.mp3")
+    if not os.path.exists(audio_path):
         return jsonify({'error': 'Failed to generate audio'}), 500
     return {'audioUrl': f'/api/node/download_audio/{node_id}/'}
 

@@ -7,6 +7,9 @@
     export let data;
 
     function word_count(text) {
+        if (text === undefined) {
+            return 0;
+        }
         return text.split(/\s+/).filter(Boolean).length;
     }
 
@@ -373,6 +376,7 @@
     async function handleGenerateAudio() {
         audioSpinner = true;
         do {
+            data.node.audioUrl = null;
             let resp = await fetch(`/api/node/generate_audio/${data.node.id}/`, {
                 method: 'POST',
                 headers: {
@@ -384,8 +388,15 @@
                 alert('Error generating AV');
                 break;
             }
-            let resp_json = await resp.json();            
-            data.node.audioUrl = resp_json.audioUrl;
+            let resp_json = await resp.json();
+            if (resp_json.error) {
+                alert(resp_json.error);
+                break;
+            }
+            let audioUrl = resp_json.audioUrl;
+            let dummyParam = `dummy=${Math.random()}`;
+            audioUrl += `?${dummyParam}`;
+            data.node.audioUrl = audioUrl;
         } while (false);
         audioSpinner = false;
     }       
@@ -487,7 +498,7 @@
                                 {#if data.node.audioUrl}
                                     <div class="mb-4">
                                         <Label for="audioPlayer" class="mb-2 text-lg">Audio</Label>
-                                        <audio id="audioPlayer" controls src={data.node.audioUrl}>
+                                        <audio id="audioPlayer" controls src={data.node.audioUrl} class="w-full">
                                             Your browser does not support the audio element.
                                         </audio>
                                     </div>
